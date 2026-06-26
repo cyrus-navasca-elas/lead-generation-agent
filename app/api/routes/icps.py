@@ -15,6 +15,19 @@ async def list_icps(ctn: Annotated[AppContainer, Depends(container)]) -> list[st
     return ctn.icp_repo.list_ids()
 
 
+@router.get("/summary", response_model=list[dict])
+async def list_icp_summaries(
+    ctn: Annotated[AppContainer, Depends(container)],
+) -> list[dict]:
+    out: list[dict] = []
+    for icp_id in ctn.icp_repo.list_ids():
+        icp = ctn.icp_repo.get(icp_id)
+        if icp is None:
+            continue
+        out.append({"id": icp.id, "label": icp.label})
+    return out
+
+
 @router.get("/{icp_id}", response_model=ICP)
 async def get_icp(
     icp_id: str,

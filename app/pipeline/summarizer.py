@@ -31,6 +31,14 @@ async def summarize_scored(
                     signals=item.signals,
                     breakdown=item.breakdown,
                     total_score=item.total_score,
+                    enriched=(
+                        item.enriched_profile.model_dump()
+                        if item.enriched_profile
+                        else None
+                    ),
+                    relevance_reasoning=(
+                        item.relevance.reasoning if item.relevance else None
+                    ),
                 )
             except Exception as exc:
                 log.warning(

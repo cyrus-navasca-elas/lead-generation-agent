@@ -24,7 +24,7 @@
         Run
       </button>
       <button data-tab="icp" class="tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-900">
-        ICP
+        ICP Configuration
       </button>
     </nav>
 
@@ -49,6 +49,14 @@
         <label class="block text-sm font-medium mb-1">Objective</label>
         <textarea id="objective" rows="3" class="w-full border rounded px-2 py-1.5 text-sm mb-4"
           placeholder="e.g. Find mid-market CA electrical contractors with active bonds"></textarea>
+
+        <div class="mb-4">
+          <label class="block text-xs text-slate-500 mb-1">How many top leads to deep-research (web scrape + LLM scoring)</label>
+          <input id="scrapeTopK" type="number" min="0" max="50" class="w-full border rounded px-2 py-1.5 text-sm" />
+          <div class="text-[11px] text-slate-400 mt-1">Higher = better ranking, more time + cost.</div>
+        </div>
+
+        <div id="integrations" class="text-xs mb-3"></div>
 
         <button id="startBtn" class="w-full bg-slate-900 text-white font-medium py-2 rounded hover:bg-slate-700 disabled:bg-slate-400">
           Start run
@@ -86,6 +94,14 @@
         </div>
       </section>
     </div>
+
+    <section id="leaderboardSection" class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mt-6 hidden">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-semibold">Top prospects</h2>
+        <span class="text-xs text-slate-500">Click a row to expand</span>
+      </div>
+      <div id="leaderboard" class="text-sm"></div>
+    </section>
 
     <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mt-6">
       <h2 class="font-semibold mb-3">Recent runs</h2>
@@ -246,18 +262,58 @@
       queued: "bg-slate-200 text-slate-800",
       planning: "bg-amber-100 text-amber-800",
       retrieving: "bg-blue-100 text-blue-800",
-      enriching: "bg-blue-100 text-blue-800",
       scoring: "bg-violet-100 text-violet-800",
+      enriching: "bg-blue-100 text-blue-800",
+      relevance_scoring: "bg-indigo-100 text-indigo-800",
       summarizing: "bg-violet-100 text-violet-800",
       exporting: "bg-violet-100 text-violet-800",
       done: "bg-emerald-100 text-emerald-800",
       error: "bg-red-100 text-red-800",
     };
 
+    let integrations = { openai_ready: false, tavily_ready: false, defaults: {} };
+    async function loadIntegrations() {
+      try {
+        integrations = await fetch("/sources/integrations").then((r) => r.json());
+      } catch (e) {
+        integrations = { openai_ready: false, tavily_ready: false, defaults: {} };
+      }
+      const d = integrations.defaults || {};
+      if (d.scrape_top_k != null && !$("scrapeTopK").value) {
+        $("scrapeTopK").value = d.scrape_top_k;
+      }
+      renderIntegrations();
+    }
+
+    function renderIntegrations() {
+      const i = integrations;
+      const parts = [];
+      parts.push(integrationBadge("OpenAI", i.openai_ready));
+      parts.push(integrationBadge("Tavily", i.tavily_ready));
+      const warn = !i.openai_ready
+        ? "OpenAI key missing — falls back to deterministic planner; no enrichment."
+        : !i.tavily_ready
+        ? "Tavily key missing — web enrichment will be skipped."
+        : "";
+      const banner = warn
+        ? `<div class="mt-1 text-amber-700">${warn}</div>`
+        : `<div class="mt-1 text-emerald-700">All integrations ready.</div>`;
+      $("integrations").innerHTML =
+        `<div class="flex flex-wrap gap-1">${parts.join(" ")}</div>${banner}`;
+    }
+    function integrationBadge(label, ok) {
+      const cls = ok
+        ? "bg-emerald-100 text-emerald-800"
+        : "bg-slate-200 text-slate-600";
+      const dot = ok ? "●" : "○";
+      return `<span class="pill ${cls}">${dot} ${label}</span>`;
+    }
+
+
     async function loadIcps() {
-      const ids = await fetch("/icps").then((r) => r.json());
+      const items = await fetch("/icps/summary").then((r) => r.json());
       icpSel.innerHTML = '<option value="">— none —</option>' +
-        ids.map((id) => `<option value="${id}">${id}</option>`).join("");
+        items.map((it) => `<option value="${it.id}">${escapeHtml(it.label || it.id)}</option>`).join("");
     }
 
     let sourceMeta = {};
@@ -355,6 +411,7 @@
           startBtn.disabled = false;
           startBtn.textContent = "Start another run";
           loadRecent();
+          renderLeaderboard(id);
         } else if (r.status === "error") {
           stopPolling();
           errorEl.classList.remove("hidden");
@@ -365,6 +422,96 @@
       } catch (e) {
         console.error(e);
       }
+    }
+
+    async function renderLeaderboard(runId) {
+      try {
+        const data = await fetch(`/runs/${runId}/artifacts/raw.json`).then((r) => r.json());
+        const rows = (data.results || []).slice(0, 10);
+        if (!rows.length) {
+          $("leaderboard").innerHTML = '<div class="text-slate-500">No scored companies.</div>';
+        } else {
+          $("leaderboard").innerHTML = `
+            <table class="w-full text-xs">
+              <thead class="text-slate-500">
+                <tr>
+                  <th class="text-left py-1">#</th>
+                  <th class="text-left py-1">Company</th>
+                  <th class="text-left py-1">Base</th>
+                  <th class="text-left py-1">Relevance</th>
+                  <th class="text-left py-1">Total</th>
+                  <th class="text-left py-1">Priority</th>
+                  <th class="text-left py-1">Website</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows.map((row, idx) => leaderboardRow(row, idx)).join("")}
+              </tbody>
+            </table>`;
+          document.querySelectorAll(".lb-row").forEach((el) => {
+            el.addEventListener("click", () => {
+              const detail = el.nextElementSibling;
+              if (detail) detail.classList.toggle("hidden");
+            });
+          });
+        }
+        $("leaderboardSection").classList.remove("hidden");
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function leaderboardRow(row, idx) {
+      const c = row.company || {};
+      const rel = row.relevance;
+      const p = row.enriched_profile;
+      const s = row.summary;
+      const total = row.total_score ?? 0;
+      const base = row.base_score ?? total;
+      const relScore = rel ? rel.score : null;
+      const priority = rel ? rel.outreach_priority : "—";
+      const priorityCls =
+        priority === "high"
+          ? "bg-emerald-100 text-emerald-800"
+          : priority === "medium"
+          ? "bg-amber-100 text-amber-800"
+          : "bg-slate-200 text-slate-700";
+      const website = p && p.website ? p.website : c.website || "";
+      const websiteCell = website
+        ? `<a href="${website}" target="_blank" class="text-blue-700 underline">site</a>`
+        : "";
+      const reasoning = rel ? rel.reasoning : "";
+      const services = p && p.services ? p.services.join(", ") : "";
+      const description = p ? p.description : "";
+      const painPoints = (rel && rel.pain_points) || (s && s.pain_points) || [];
+      const detail = `
+        <tr class="bg-slate-50 hidden">
+          <td colspan="7" class="p-3 text-xs text-slate-700">
+            ${description ? `<div class="mb-2"><b>Description:</b> ${escapeHtml(description)}</div>` : ""}
+            ${services ? `<div class="mb-2"><b>Services:</b> ${escapeHtml(services)}</div>` : ""}
+            ${reasoning ? `<div class="mb-2"><b>Relevance reasoning:</b> ${escapeHtml(reasoning)}</div>` : ""}
+            ${painPoints.length ? `<div class="mb-2"><b>Pain points:</b><ul class="list-disc ml-5">${painPoints.map(p => `<li>${escapeHtml(p)}</li>`).join("")}</ul></div>` : ""}
+            ${s && s.erp_relevance ? `<div class="mb-2"><b>ERP relevance:</b> ${escapeHtml(s.erp_relevance)}</div>` : ""}
+          </td>
+        </tr>`;
+      return `
+        <tr class="lb-row border-t border-slate-100 cursor-pointer hover:bg-slate-50">
+          <td class="py-1 pr-2 text-slate-400">${idx + 1}</td>
+          <td class="py-1 pr-2 font-medium">${escapeHtml(c.name || "")}</td>
+          <td class="py-1 pr-2">${base}</td>
+          <td class="py-1 pr-2">${relScore != null ? relScore : "—"}</td>
+          <td class="py-1 pr-2 font-semibold">${total}</td>
+          <td class="py-1 pr-2"><span class="pill ${priorityCls}">${priority}</span></td>
+          <td class="py-1 pr-2">${websiteCell}</td>
+        </tr>${detail}`;
+    }
+
+    function escapeHtml(s) {
+      return String(s || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
     }
 
     function stopPolling() {
@@ -378,9 +525,14 @@
       jsonBtn.classList.add("hidden");
       rationale.classList.add("hidden");
 
+      const topK = parseInt($("scrapeTopK").value, 10);
+      const filters = {};
+      if (Number.isFinite(topK)) filters.scrape_top_k = topK;
+
       const payload = {
         source: sourceSel.value,
         objective: objective.value || "(unspecified)",
+        filters,
       };
       if (icpSel.value) payload.icp_id = icpSel.value;
 
@@ -457,9 +609,9 @@
     }
 
     async function loadIcpDropdown() {
-      const ids = await fetch("/icps").then((r) => r.json());
+      const items = await fetch("/icps/summary").then((r) => r.json());
       editIcpSel.innerHTML = '<option value="">— select —</option>' +
-        ids.map((id) => `<option value="${id}">${id}</option>`).join("");
+        items.map((it) => `<option value="${it.id}">${escapeHtml(it.label || it.id)}</option>`).join("");
     }
 
     function populateForm(icp) {
@@ -611,7 +763,7 @@
       await Promise.all([loadIcpDropdown(), loadIcps()]);
     });
 
-    Promise.all([loadSources(), loadIcps(), loadIcpDropdown()]).then(() => {
+    Promise.all([loadSources(), loadIcps(), loadIcpDropdown(), loadIntegrations()]).then(() => {
       sourceSel.dispatchEvent(new Event("change"));
     });
     loadRecent();

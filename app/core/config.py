@@ -18,7 +18,20 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str = ""
     openai_planner_model: str = "gpt-4o-mini"
-    openai_summary_model: str = "gpt-4o"
+    openai_summary_model: str = "gpt-4o-mini"
+    openai_extract_model: str = "gpt-4o-mini"
+    openai_relevance_model: str = "gpt-4o-mini"
+
+    # Tavily (web search)
+    tavily_api_key: str = ""
+    tavily_base_url: str = "https://api.tavily.com"
+
+    # Enrichment
+    scrape_top_k: int = 10
+    score_blend_weight: float = 0.4
+    enrich_max_concurrency: int = 5
+    scrape_timeout_seconds: float = 8.0
+    scrape_max_bytes: int = 30_000
 
     # ZoomInfo
     zoominfo_auth_mode: str = "pki"
@@ -40,7 +53,7 @@ class Settings(BaseSettings):
     cslb_large_bond_threshold: int = 25000
 
     # Modes
-    use_fake_clients: bool = True
+    use_fake_clients: bool = False
     dev_cache_enabled: bool = False
 
     # Misc

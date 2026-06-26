@@ -19,6 +19,8 @@ dependencies = [
     "python-ulid>=2.7",
     "python-multipart>=0.0.9",
     "aiosqlite>=0.20",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
 ]
 
 [tool.uv]

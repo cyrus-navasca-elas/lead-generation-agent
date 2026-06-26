@@ -11,8 +11,9 @@ RunStatus = Literal[
     "queued",
     "planning",
     "retrieving",
-    "enriching",
     "scoring",
+    "enriching",
+    "relevance_scoring",
     "summarizing",
     "exporting",
     "done",
@@ -33,6 +34,8 @@ class RunCounts(BaseModel):
     companies_retrieved: int = 0
     contacts_retrieved: int = 0
     companies_scored: int = 0
+    companies_enriched: int = 0
+    companies_relevance_scored: int = 0
     companies_summarized: int = 0
 
 

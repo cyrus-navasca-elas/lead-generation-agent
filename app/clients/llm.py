@@ -33,6 +33,9 @@ class LLMClient(Protocol):
         signals: list[Signal],
         breakdown: list[ScoreBreakdown],
         total_score: int,
+        *,
+        enriched: dict | None = None,
+        relevance_reasoning: str | None = None,
     ) -> ProspectSummary: ...
 
 
@@ -215,6 +218,9 @@ class FakeLLMClient:
         signals: list[Signal],
         breakdown: list[ScoreBreakdown],
         total_score: int,
+        *,
+        enriched: dict | None = None,
+        relevance_reasoning: str | None = None,
     ) -> ProspectSummary:
         if company.source == "cslb":
             return self._summarize_cslb(company, contacts, signals, breakdown, total_score)
@@ -376,10 +382,48 @@ def _title_priority(title: str) -> int:
 
 
 class RealLLMClient:
-    """Stub — real OpenAI integration lands in Phase 2."""
+    """OpenAI-backed planner + summarizer.
+
+    Uses JSON-mode chat completions; responses are validated against Pydantic
+    schemas. On any failure, the call falls back to FakeLLMClient logic so a
+    run can still complete without an API.
+    """
 
     def __init__(self, settings: Settings):
+        from openai import AsyncOpenAI
+
         self.settings = settings
+        self.client = AsyncOpenAI(api_key=settings.openai_api_key)
+        self._fake = FakeLLMClient()
+        self._prompts_dir = settings.prompts_path
+
+    def _load_prompt(self, name: str) -> str:
+        path = self._prompts_dir / name
+        try:
+            return path.read_text()
+        except Exception:
+            return ""
+
+    async def _json_complete(
+        self,
+        *,
+        model: str,
+        system: str,
+        user: str,
+    ) -> dict:
+        import json as _json
+
+        resp = await self.client.chat.completions.create(
+            model=model,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            temperature=0.2,
+        )
+        content = resp.choices[0].message.content or "{}"
+        return _json.loads(content)
 
     async def plan_search(
         self,
@@ -389,7 +433,73 @@ class RealLLMClient:
         *,
         source: SourceName = "zoominfo",
     ) -> SearchPlan:
-        raise NotImplementedError("RealLLMClient.plan_search — Phase 2")
+        if not self.settings.openai_api_key:
+            return await self._fake.plan_search(
+                objective, icp, filters, source=source
+            )
+
+        system = self._load_prompt("planner.md") or _DEFAULT_PLANNER_PROMPT
+        icp_dump = icp.model_dump() if icp else None
+        user = (
+            f"SOURCE: {source}\n"
+            f"OBJECTIVE: {objective}\n"
+            f"ICP: {icp_dump}\n"
+            f"FILTERS: {filters}\n\n"
+            "Emit a JSON object matching the schema described in the system prompt."
+        )
+
+        try:
+            data = await self._json_complete(
+                model=self.settings.openai_planner_model,
+                system=system,
+                user=user,
+            )
+            plan = self._coerce_plan(data, source=source, icp=icp)
+            log.info("real_llm.plan", source=source, rationale=plan.rationale)
+            return plan
+        except Exception as exc:
+            log.warning("real_llm.plan_failed", error=str(exc))
+            return await self._fake.plan_search(
+                objective, icp, filters, source=source
+            )
+
+    def _coerce_plan(
+        self, data: dict, *, source: SourceName, icp: ICP | None
+    ) -> SearchPlan:
+        rationale = str(data.get("rationale") or "").strip()
+        industries = _as_list_str(data.get("industries"))
+        geographies = _as_list_str(data.get("geographies")) or (
+            icp.geographies if icp else []
+        )
+        plan = SearchPlan(
+            industries=industries or (icp.industries if icp else []),
+            employee_min=_as_int(data.get("employee_min")),
+            employee_max=_as_int(data.get("employee_max")),
+            revenue_min=_as_int(data.get("revenue_min")),
+            revenue_max=_as_int(data.get("revenue_max")),
+            technologies=_as_list_str(data.get("technologies")),
+            geographies=geographies,
+            rationale=rationale,
+        )
+        if source == "cslb":
+            cslb_data = data.get("cslb") or {}
+            plan.cslb = CSLBICPBlock(
+                classifications=_as_list_str(cslb_data.get("classifications")),
+                business_types=_as_list_str(cslb_data.get("business_types")),
+                counties=_as_list_str(cslb_data.get("counties")),
+                min_bond_amount=_as_int(cslb_data.get("min_bond_amount")),
+                primary_status=_as_list_str(cslb_data.get("primary_status"))
+                or ["CLEAR"],
+            )
+        else:
+            zi = data.get("zoominfo") or {}
+            plan.zoominfo = ZoomInfoICPBlock(
+                technologies_present=_as_list_str(zi.get("technologies_present"))
+                or plan.technologies,
+                technologies_absent=_as_list_str(zi.get("technologies_absent"))
+                or (icp.technologies_absent if icp else []),
+            )
+        return plan
 
     async def summarize_prospect(
         self,
@@ -398,11 +508,96 @@ class RealLLMClient:
         signals: list[Signal],
         breakdown: list[ScoreBreakdown],
         total_score: int,
+        *,
+        enriched: dict | None = None,
+        relevance_reasoning: str | None = None,
     ) -> ProspectSummary:
-        raise NotImplementedError("RealLLMClient.summarize_prospect — Phase 2")
+        if not self.settings.openai_api_key:
+            return await self._fake.summarize_prospect(
+                company, contacts, signals, breakdown, total_score
+            )
+
+        system = self._load_prompt("summary.md") or _DEFAULT_SUMMARY_PROMPT
+        user = (
+            f"COMPANY: {company.model_dump(exclude={'technologies'})}\n"
+            f"TECHNOLOGIES: {company.technologies}\n"
+            f"SIGNALS: {[s.model_dump() for s in signals]}\n"
+            f"BREAKDOWN: {[b.model_dump() for b in breakdown]}\n"
+            f"TOTAL_SCORE: {total_score}\n"
+            f"ENRICHED_PROFILE: {enriched or {}}\n"
+            f"RELEVANCE_REASONING: {relevance_reasoning or ''}\n"
+            f"TOP_CONTACTS: {[c.model_dump() for c in contacts[:5]]}\n\n"
+            "Emit a JSON object: {fit_reason, pain_points[], erp_relevance,"
+            " recommended_contacts[], confidence in {low,medium,high}}."
+        )
+        try:
+            data = await self._json_complete(
+                model=self.settings.openai_summary_model,
+                system=system,
+                user=user,
+            )
+            confidence = data.get("confidence") or (
+                "high" if total_score >= 70 else "medium" if total_score >= 40 else "low"
+            )
+            if confidence not in ("low", "medium", "high"):
+                confidence = "low"
+            return ProspectSummary(
+                fit_reason=str(data.get("fit_reason") or ""),
+                pain_points=_as_list_str(data.get("pain_points")),
+                erp_relevance=str(data.get("erp_relevance") or ""),
+                recommended_contacts=_as_list_str(data.get("recommended_contacts")),
+                confidence=confidence,
+            )
+        except Exception as exc:
+            log.warning("real_llm.summary_failed", error=str(exc), company=company.name)
+            return await self._fake.summarize_prospect(
+                company, contacts, signals, breakdown, total_score
+            )
+
+
+def _as_list_str(value) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if v]
+    return []
+
+
+def _as_int(value) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+_DEFAULT_PLANNER_PROMPT = """You are a senior B2B sales-ops planner for an agentic ERP vendor. \
+Given an objective, an ICP, and source ("cslb" or "zoominfo"), emit a SearchPlan as JSON.
+
+For source="cslb", populate `cslb` with CA contractor filters: classifications (e.g. C10, C36, B), business_types, counties, min_bond_amount, primary_status (default ["CLEAR"]). Include short `rationale`.
+
+For source="zoominfo", populate top-level industries, employee_min/max, revenue_min/max, technologies, geographies. Include short `rationale`.
+
+Return JSON only.
+"""
+
+_DEFAULT_SUMMARY_PROMPT = """You write concise B2B prospect briefs for an agentic ERP sales team. \
+Given a company, signals, breakdown, enriched_profile, and relevance reasoning, return JSON with:
+- fit_reason (one sentence)
+- pain_points (3-5 bullet strings, specific to this company)
+- erp_relevance (one sentence on how our agentic ERP helps)
+- recommended_contacts (up to 3 title strings)
+- confidence ("low" | "medium" | "high")
+
+Be specific. Avoid generic boilerplate. Return JSON only.
+"""
 
 
 def build_llm_client(settings: Settings) -> LLMClient:
-    if settings.use_fake_clients:
+    """Pick LLM backend. Auto-fallback to FakeLLMClient when no API key."""
+    if settings.use_fake_clients or not settings.openai_api_key:
         return FakeLLMClient()
     return RealLLMClient(settings)

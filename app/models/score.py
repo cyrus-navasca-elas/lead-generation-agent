@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.models.company import Company
 from app.models.contact import Contact
+from app.models.enrichment import EnrichedProfile, RelevanceScore
 from app.models.signal import Signal
 
 
@@ -28,5 +29,8 @@ class ScoredCompany(BaseModel):
     contacts: list[Contact] = Field(default_factory=list)
     signals: list[Signal] = Field(default_factory=list)
     breakdown: list[ScoreBreakdown] = Field(default_factory=list)
+    base_score: int = 0
+    relevance: RelevanceScore | None = None
+    enriched_profile: EnrichedProfile | None = None
     total_score: int = 0
     summary: ProspectSummary | None = None

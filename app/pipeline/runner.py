@@ -5,8 +5,12 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.agents.enrich import EnrichAgent
+from app.agents.relevance import RelevanceAgent
 from app.clients.llm import LLMClient
+from app.clients.scraper import Scraper
 from app.clients.source import LeadSource
+from app.clients.web_search import TavilyClient
 from app.core.config import Settings
 from app.core.logging import (
     attach_run_file_handler,
@@ -16,6 +20,7 @@ from app.core.logging import (
 from app.models.run import RunArtifacts, RunRequest, RunState
 from app.models.score import ScoredCompany
 from app.pipeline import exporter
+from app.pipeline.enrichment import blend, enrich_top_k
 from app.pipeline.planner import plan_search
 from app.pipeline.retrieval import retrieve
 from app.pipeline.scoring import ScoringConfig, score_company
@@ -36,6 +41,9 @@ class Pipeline:
         source: LeadSource,
         llm: LLMClient,
         scoring_config: ScoringConfig,
+        web_search: TavilyClient | None = None,
+        scraper: Scraper | None = None,
+        openai_client=None,
     ):
         self.settings = settings
         self.run_store = run_store
@@ -43,6 +51,9 @@ class Pipeline:
         self.source = source
         self.llm = llm
         self.scoring_config = scoring_config
+        self.web_search = web_search
+        self.scraper = scraper
+        self.openai_client = openai_client
 
     async def execute(self, state: RunState, request: RunRequest) -> None:
         run_dir = self.run_store.run_dir(state.run_id)
@@ -100,12 +111,7 @@ class Pipeline:
             len(v) for v in retrieval.contacts_by_company.values()
         )
 
-        state.status = "enriching"
-        await self.run_store.update(state)
-        # Enrichment is folded into retrieve() for Phase 1; transition exists
-        # so the UI sees the phase progression.
-
-        # --- Signals + Score ---
+        # --- Signals + Base Score ---
         state.status = "scoring"
         await self.run_store.update(state)
         scored: list[ScoredCompany] = []
@@ -121,11 +127,72 @@ class Pipeline:
                     contacts=retrieval.contacts_by_company.get(company.zoominfo_id, []),
                     signals=signals,
                     breakdown=breakdown,
+                    base_score=total,
                     total_score=total,
                 )
             )
-        scored.sort(key=lambda s: s.total_score, reverse=True)
+        scored.sort(key=lambda s: s.base_score, reverse=True)
         state.counts.companies_scored = len(scored)
+
+        # --- Enrichment (web search + scrape + extract) ---
+        filters = request.filters or {}
+        top_k = int(filters.get("scrape_top_k") or self.settings.scrape_top_k)
+        alpha = float(filters.get("score_blend_weight") or self.settings.score_blend_weight)
+
+        enrich_ready = bool(
+            self.web_search
+            and self.web_search.ready
+            and self.scraper
+            and self.openai_client
+            and self.settings.openai_api_key
+        )
+        if enrich_ready and top_k > 0:
+            state.status = "enriching"
+            await self.run_store.update(state)
+            enrich_agent = EnrichAgent(
+                self.settings, self.web_search, self.scraper, self.openai_client
+            )
+            relevance_agent = RelevanceAgent(self.settings, self.openai_client)
+            icp = self.icp_repo.get(request.icp_id) if request.icp_id else None
+
+            state.status = "relevance_scoring"
+            await self.run_store.update(state)
+            enrichment = await enrich_top_k(
+                scored,
+                enrich_agent=enrich_agent,
+                relevance_agent=relevance_agent,
+                objective=request.objective,
+                icp=icp,
+                top_k=top_k,
+                max_concurrency=self.settings.enrich_max_concurrency,
+            )
+
+            enriched_count = 0
+            relevance_count = 0
+            for item in scored:
+                key = item.company.zoominfo_id
+                profile = enrichment.profiles.get(key)
+                relevance = enrichment.relevance.get(key)
+                if profile is not None:
+                    item.enriched_profile = profile
+                    if profile.confidence not in ("error", "none"):
+                        enriched_count += 1
+                    if profile.website and not item.company.website:
+                        item.company.website = profile.website
+                if relevance is not None:
+                    item.relevance = relevance
+                    relevance_count += 1
+                    item.total_score = blend(item.base_score, relevance.score, alpha)
+            state.counts.companies_enriched = enriched_count
+            state.counts.companies_relevance_scored = relevance_count
+            scored.sort(key=lambda s: s.total_score, reverse=True)
+        else:
+            log.info(
+                "runner.enrich_skipped",
+                tavily_ready=bool(self.web_search and self.web_search.ready),
+                openai_ready=bool(self.settings.openai_api_key),
+                top_k=top_k,
+            )
 
         # --- Summarize ---
         state.status = "summarizing"

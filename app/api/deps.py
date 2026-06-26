@@ -8,7 +8,9 @@ from fastapi import Request
 from app.clients.cslb import CSLBClient
 from app.clients.cslb_ingest import ensure_db
 from app.clients.llm import LLMClient, build_llm_client
+from app.clients.scraper import Scraper
 from app.clients.source import LeadSource
+from app.clients.web_search import TavilyClient
 from app.core.config import Settings, get_settings
 from app.core.logging import get_logger
 from app.models.company import SourceName
@@ -37,6 +39,9 @@ class AppContainer:
         self.icp_repo = ICPRepository(root=settings.icps_path)
         self.llm: LLMClient = build_llm_client(settings)
         self.scoring: ScoringConfig = load_scoring_config(settings.scoring_path)
+        self.web_search: TavilyClient = TavilyClient(settings)
+        self.scraper: Scraper = Scraper(settings)
+        self.openai_client = self._build_openai_client()
 
         # ZoomInfo client is in-progress (no API access yet) — intentionally
         # not registered in `sources`, so `POST /runs source=zoominfo` returns
@@ -44,6 +49,17 @@ class AppContainer:
         self.sources: dict[SourceName, LeadSource] = {}
         self._cslb_row_count = 0
         self._init_cslb()
+
+    def _build_openai_client(self):
+        if not self.settings.openai_api_key:
+            return None
+        try:
+            from openai import AsyncOpenAI
+
+            return AsyncOpenAI(api_key=self.settings.openai_api_key)
+        except Exception as exc:  # pragma: no cover - import guard
+            log.warning("openai.client_init_failed", error=str(exc))
+            return None
 
     def _init_cslb(self) -> None:
         csv_path = Path(self.settings.cslb_csv_path)
@@ -107,6 +123,9 @@ class AppContainer:
             source=self.sources[source],
             llm=self.llm,
             scoring_config=self.scoring,
+            web_search=self.web_search,
+            scraper=self.scraper,
+            openai_client=self.openai_client,
         )
 
 
