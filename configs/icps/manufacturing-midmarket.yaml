@@ -1,0 +1,12 @@
+id: manufacturing-midmarket
+label: Mid-Market Manufacturing
+industries:
+- Manufacturing
+employee_min: 100
+employee_max: 500
+revenue_min: null
+revenue_max: null
+geographies: []
+technologies_present: []
+technologies_absent: []
+notes: null

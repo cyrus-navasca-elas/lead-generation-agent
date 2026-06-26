@@ -1,0 +1,26 @@
+id: cslb-electrical-midmarket
+label: California Electrical Contractors (Mid-Market)
+industries:
+  - Electrical
+  - Construction
+geographies:
+  - California
+cslb:
+  classifications:
+    - C-10
+  business_types:
+    - Corporation
+    - Limited Liability
+  counties:
+    - Los Angeles
+    - Orange
+    - San Diego
+    - Riverside
+    - San Bernardino
+  min_bond_amount: 15000
+  primary_status:
+    - CLEAR
+notes: >
+  Active CA C-10 electrical contractors at Corp/LLC scale across Southern
+  California. Used as a probe for ERP fit among growing trades that
+  juggle multi-classification scope and bond/wc compliance.

@@ -1,0 +1,69 @@
+max_score: 100
+rules:
+  - id: uses_salesforce
+    label: Uses Salesforce
+    requires_signal: uses_salesforce
+    points: 20
+  - id: uses_legacy_erp
+    label: Uses legacy ERP (NetSuite/Oracle/SAP)
+    requires_signal: uses_legacy_erp
+    points: 15
+  - id: size_100_500
+    label: Mid-market headcount (100–500)
+    condition: "100 <= (employee_count or 0) <= 500"
+    points: 15
+  - id: industry_manufacturing
+    label: Manufacturing industry
+    condition: "(industry or '').lower() in ('manufacturing', 'industrial machinery')"
+    points: 15
+  - id: hiring_revops
+    label: Hiring RevOps
+    requires_signal: hiring_revops
+    points: 15
+  - id: hiring_erp_admin
+    label: Hiring ERP Administrator
+    requires_signal: hiring_erp_admin
+    points: 10
+  - id: recent_funding
+    label: Recent funding event
+    requires_signal: recent_funding
+    points: 10
+  - id: multi_location
+    label: Multiple locations
+    requires_signal: multi_location
+    points: 10
+
+  # --- CSLB-flavored rules. Skipped automatically when their signals are
+  # absent (e.g. on ZoomInfo-sourced rows).
+  - id: corp_or_llc
+    label: Corporation or LLC (CSLB)
+    requires_signal: corp_or_llc
+    points: 10
+  - id: has_contractor_bond
+    label: Active contractor bond
+    requires_signal: has_contractor_bond
+    points: 5
+  - id: large_bond
+    label: Large bond amount (CSLB)
+    requires_signal: large_bond
+    points: 10
+  - id: multi_classification
+    label: Holds multiple license classifications
+    requires_signal: multi_classification
+    points: 15
+  - id: clear_status
+    label: License status CLEAR
+    requires_signal: clear_status
+    points: 5
+  - id: has_workers_comp
+    label: Active workers' comp policy
+    requires_signal: has_workers_comp
+    points: 5
+  - id: recent_reissue
+    label: License reissued in last 24 months
+    requires_signal: recent_reissue
+    points: 5
+  - id: expiring_soon
+    label: License expiring within 6 months
+    requires_signal: expiring_soon
+    points: 5

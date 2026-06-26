@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.python-version
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Artifacts
+out/
+cache/
+
+# Node / web
+web/node_modules/
+web/dist/
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
+
+# uv
+uv.lock

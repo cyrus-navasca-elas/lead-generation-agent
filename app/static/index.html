@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Lead Generation Agent</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
+    .pill { padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 600; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <div class="max-w-5xl mx-auto p-6">
+    <header class="mb-6 flex items-end justify-between">
+      <div>
+        <h1 class="text-2xl font-bold">Lead Generation Agent</h1>
+        <p class="text-sm text-slate-600">Internal tool — pick a source, start a run, download the workbook.</p>
+      </div>
+    </header>
+
+    <nav class="flex gap-1 border-b border-slate-200 mb-6">
+      <button data-tab="run" class="tab-btn px-4 py-2 text-sm font-medium border-b-2 border-slate-900 text-slate-900">
+        Run
+      </button>
+      <button data-tab="icp" class="tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-900">
+        ICP
+      </button>
+    </nav>
+
+    <!-- ============ RUN VIEW ============ -->
+    <div data-view="run">
+    <div class="grid md:grid-cols-2 gap-6">
+      <!-- Config card -->
+      <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <h2 class="font-semibold mb-4">Configure run</h2>
+
+        <label class="block text-sm font-medium mb-1">Source</label>
+        <select id="source" class="w-full border rounded px-2 py-1.5 text-sm mb-1">
+          <!-- options populated from /sources -->
+        </select>
+        <div id="sourceNote" class="text-xs text-slate-500 mb-4"></div>
+
+        <label class="block text-sm font-medium mb-1">ICP (optional)</label>
+        <select id="icp" class="w-full border rounded px-2 py-1.5 text-sm mb-4">
+          <option value="">— none —</option>
+        </select>
+
+        <label class="block text-sm font-medium mb-1">Objective</label>
+        <textarea id="objective" rows="3" class="w-full border rounded px-2 py-1.5 text-sm mb-4"
+          placeholder="e.g. Find mid-market CA electrical contractors with active bonds"></textarea>
+
+        <button id="startBtn" class="w-full bg-slate-900 text-white font-medium py-2 rounded hover:bg-slate-700 disabled:bg-slate-400">
+          Start run
+        </button>
+      </section>
+
+      <!-- Status card -->
+      <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <h2 class="font-semibold mb-4">Run status</h2>
+
+        <div id="empty" class="text-sm text-slate-500">No run started yet.</div>
+
+        <div id="status" class="hidden">
+          <div class="text-xs text-slate-500 mb-1">Run ID</div>
+          <div id="runId" class="font-mono text-xs mb-3 break-all"></div>
+
+          <div class="flex items-center gap-2 mb-3">
+            <span class="text-xs text-slate-500">Status:</span>
+            <span id="statusBadge" class="pill bg-slate-200 text-slate-800">queued</span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2 text-xs mb-3" id="counts"></div>
+
+          <div id="rationale" class="text-xs text-slate-600 italic mb-3 hidden"></div>
+
+          <button id="downloadBtn" class="hidden w-full bg-emerald-600 text-white font-medium py-2 rounded hover:bg-emerald-500">
+            Download Excel
+          </button>
+
+          <button id="jsonBtn" class="hidden w-full mt-2 bg-slate-200 text-slate-700 text-sm py-1.5 rounded hover:bg-slate-300">
+            Download raw JSON
+          </button>
+
+          <div id="error" class="hidden mt-3 p-3 bg-red-50 text-red-800 text-xs rounded border border-red-200 whitespace-pre-wrap"></div>
+        </div>
+      </section>
+    </div>
+
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 mt-6">
+      <h2 class="font-semibold mb-3">Recent runs</h2>
+      <div id="recent" class="text-sm text-slate-500">Loading…</div>
+    </section>
+    </div>
+    <!-- ============ /RUN VIEW ============ -->
+
+    <!-- ============ ICP VIEW ============ -->
+    <div data-view="icp" class="hidden">
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-semibold">ICP editor</h2>
+        <div id="icpFlash" class="text-xs"></div>
+      </div>
+
+      <div class="flex flex-wrap gap-2 mb-4 items-end">
+        <div class="flex-1 min-w-[14rem]">
+          <label class="block text-xs text-slate-500 mb-1">Existing ICP</label>
+          <select id="editIcpSel" class="w-full border rounded px-2 py-1.5 text-sm">
+            <option value="">— select —</option>
+          </select>
+        </div>
+        <button id="newIcpBtn" class="px-3 py-1.5 text-sm rounded bg-slate-200 hover:bg-slate-300">+ New</button>
+        <button id="cancelIcpBtn" class="px-3 py-1.5 text-sm rounded bg-slate-200 hover:bg-slate-300 hidden">Cancel</button>
+        <button id="reloadIcpBtn" class="px-3 py-1.5 text-sm rounded bg-slate-200 hover:bg-slate-300">↻ Reload</button>
+        <button id="deleteIcpBtn" class="px-3 py-1.5 text-sm rounded bg-red-100 text-red-700 hover:bg-red-200 hidden">Delete</button>
+      </div>
+
+      <div id="icpForm" class="hidden grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">ID</label>
+          <input id="f_id" class="w-full border rounded px-2 py-1.5 text-sm font-mono" />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">Label</label>
+          <input id="f_label" class="w-full border rounded px-2 py-1.5 text-sm" />
+        </div>
+
+        <div class="md:col-span-2">
+          <label class="block text-xs text-slate-500 mb-1">Industries (comma-separated)</label>
+          <input id="f_industries" class="w-full border rounded px-2 py-1.5 text-sm" />
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">Employees (min)</label>
+          <input id="f_emp_min" type="number" class="w-full border rounded px-2 py-1.5 text-sm" />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">Employees (max)</label>
+          <input id="f_emp_max" type="number" class="w-full border rounded px-2 py-1.5 text-sm" />
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">Revenue (min, $)</label>
+          <input id="f_rev_min" type="number" class="w-full border rounded px-2 py-1.5 text-sm" />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">Revenue (max, $)</label>
+          <input id="f_rev_max" type="number" class="w-full border rounded px-2 py-1.5 text-sm" />
+        </div>
+
+        <div class="md:col-span-2">
+          <label class="block text-xs text-slate-500 mb-1">Geographies (comma-separated)</label>
+          <input id="f_geo" class="w-full border rounded px-2 py-1.5 text-sm" />
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">Technologies present (ZoomInfo)</label>
+          <input id="f_tech_present" class="w-full border rounded px-2 py-1.5 text-sm" />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">Technologies absent (ZoomInfo)</label>
+          <input id="f_tech_absent" class="w-full border rounded px-2 py-1.5 text-sm" />
+        </div>
+
+        <details class="md:col-span-2 border rounded p-3 bg-slate-50">
+          <summary class="cursor-pointer text-sm font-medium">CSLB block</summary>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+            <div class="md:col-span-2">
+              <label class="block text-xs text-slate-500 mb-1">Classifications (e.g. C-10, B, C-36)</label>
+              <input id="f_cslb_class" class="w-full border rounded px-2 py-1.5 text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs text-slate-500 mb-1">Business types</label>
+              <input id="f_cslb_btype" class="w-full border rounded px-2 py-1.5 text-sm" placeholder="Corporation, Limited Liability"/>
+            </div>
+            <div>
+              <label class="block text-xs text-slate-500 mb-1">Counties</label>
+              <input id="f_cslb_counties" class="w-full border rounded px-2 py-1.5 text-sm" placeholder="Los Angeles, Orange"/>
+            </div>
+            <div>
+              <label class="block text-xs text-slate-500 mb-1">Min bond amount ($)</label>
+              <input id="f_cslb_bond" type="number" class="w-full border rounded px-2 py-1.5 text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs text-slate-500 mb-1">Primary status</label>
+              <input id="f_cslb_status" class="w-full border rounded px-2 py-1.5 text-sm" placeholder="CLEAR"/>
+            </div>
+          </div>
+        </details>
+
+        <div class="md:col-span-2">
+          <label class="block text-xs text-slate-500 mb-1">Notes</label>
+          <textarea id="f_notes" rows="3" class="w-full border rounded px-2 py-1.5 text-sm"></textarea>
+        </div>
+
+        <div class="md:col-span-2 flex justify-end">
+          <button id="saveIcpBtn" class="px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded hover:bg-slate-700">
+            Save ICP
+          </button>
+        </div>
+      </div>
+    </section>
+    </div>
+    <!-- ============ /ICP VIEW ============ -->
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    // ---------- Tab navigation ----------
+    function switchTab(name) {
+      document.querySelectorAll(".tab-btn").forEach((b) => {
+        const active = b.dataset.tab === name;
+        b.classList.toggle("border-slate-900", active);
+        b.classList.toggle("text-slate-900", active);
+        b.classList.toggle("border-transparent", !active);
+        b.classList.toggle("text-slate-500", !active);
+      });
+      document.querySelectorAll("[data-view]").forEach((v) => {
+        v.classList.toggle("hidden", v.dataset.view !== name);
+      });
+    }
+    document.querySelectorAll(".tab-btn").forEach((b) => {
+      b.addEventListener("click", () => switchTab(b.dataset.tab));
+    });
+
+    const sourceSel = $("source");
+    const icpSel = $("icp");
+    const objective = $("objective");
+    const startBtn = $("startBtn");
+    const status = $("status");
+    const empty = $("empty");
+    const runIdEl = $("runId");
+    const badge = $("statusBadge");
+    const counts = $("counts");
+    const downloadBtn = $("downloadBtn");
+    const jsonBtn = $("jsonBtn");
+    const errorEl = $("error");
+    const recent = $("recent");
+    const rationale = $("rationale");
+
+    let currentRunId = null;
+    let pollHandle = null;
+
+    const STATUS_COLORS = {
+      queued: "bg-slate-200 text-slate-800",
+      planning: "bg-amber-100 text-amber-800",
+      retrieving: "bg-blue-100 text-blue-800",
+      enriching: "bg-blue-100 text-blue-800",
+      scoring: "bg-violet-100 text-violet-800",
+      summarizing: "bg-violet-100 text-violet-800",
+      exporting: "bg-violet-100 text-violet-800",
+      done: "bg-emerald-100 text-emerald-800",
+      error: "bg-red-100 text-red-800",
+    };
+
+    async function loadIcps() {
+      const ids = await fetch("/icps").then((r) => r.json());
+      icpSel.innerHTML = '<option value="">— none —</option>' +
+        ids.map((id) => `<option value="${id}">${id}</option>`).join("");
+    }
+
+    let sourceMeta = {};
+    async function loadSources() {
+      const sources = await fetch("/sources").then((r) => r.json());
+      sourceMeta = Object.fromEntries(sources.map((s) => [s.name, s]));
+      const labels = { zoominfo: "ZoomInfo", cslb: "CSLB (CA contractors)" };
+      // Ready sources first, then in-progress.
+      sources.sort((a, b) => (b.ready ? 1 : 0) - (a.ready ? 1 : 0));
+      sourceSel.innerHTML = sources
+        .map((s) => {
+          const label = labels[s.name] || s.name;
+          if (s.ready) {
+            return `<option value="${s.name}">${label}</option>`;
+          }
+          return `<option value="${s.name}" disabled>${label} — in progress</option>`;
+        })
+        .join("");
+      updateSourceNote();
+    }
+
+    function updateSourceNote() {
+      const m = sourceMeta[sourceSel.value];
+      const note = $("sourceNote");
+      if (!m) { note.textContent = ""; return; }
+      if (m.ready) {
+        note.textContent = m.row_count
+          ? `${m.row_count.toLocaleString()} rows available.`
+          : "Source ready.";
+        note.className = "text-xs text-emerald-700 mb-4";
+      } else {
+        note.textContent = m.reason || "Source not ready.";
+        note.className = "text-xs text-amber-700 mb-4";
+      }
+    }
+
+    async function loadRecent() {
+      const runs = await fetch("/runs").then((r) => r.json());
+      if (!runs.length) {
+        recent.innerHTML = '<span class="text-slate-500">No runs yet.</span>';
+        return;
+      }
+      recent.innerHTML = `
+        <table class="w-full text-xs">
+          <thead class="text-slate-500">
+            <tr>
+              <th class="text-left py-1">Run ID</th>
+              <th class="text-left py-1">Source</th>
+              <th class="text-left py-1">Status</th>
+              <th class="text-left py-1">Companies</th>
+              <th class="text-left py-1">Started</th>
+              <th class="text-left py-1"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${runs.map((r) => `
+              <tr class="border-t border-slate-100">
+                <td class="font-mono py-1 pr-2 truncate max-w-[12rem]">${r.run_id}</td>
+                <td class="py-1 pr-2">${r.source || "zoominfo"}</td>
+                <td class="py-1 pr-2"><span class="pill ${STATUS_COLORS[r.status] || ""}">${r.status}</span></td>
+                <td class="py-1 pr-2">${r.counts.companies_retrieved}</td>
+                <td class="py-1 pr-2">${new Date(r.created_at).toLocaleTimeString()}</td>
+                <td class="py-1">
+                  ${r.status === "done"
+                    ? `<a href="/runs/${r.run_id}/artifacts/companies.xlsx" class="text-emerald-700 underline">xlsx</a>`
+                    : ""}
+                </td>
+              </tr>`).join("")}
+          </tbody>
+        </table>`;
+    }
+
+    function renderCounts(c) {
+      counts.innerHTML = Object.entries(c).map(([k, v]) => `
+        <div class="bg-slate-50 rounded px-2 py-1">
+          <div class="text-[10px] uppercase tracking-wide text-slate-500">${k.replace(/_/g, " ")}</div>
+          <div class="font-semibold">${v}</div>
+        </div>`).join("");
+    }
+
+    async function poll(id) {
+      try {
+        const r = await fetch(`/runs/${id}`).then((r) => r.json());
+        runIdEl.textContent = r.run_id;
+        badge.textContent = r.status;
+        badge.className = `pill ${STATUS_COLORS[r.status] || ""}`;
+        renderCounts(r.counts);
+
+        if (r.status === "done") {
+          stopPolling();
+          downloadBtn.classList.remove("hidden");
+          jsonBtn.classList.remove("hidden");
+          downloadBtn.onclick = () => window.location.href = `/runs/${id}/artifacts/companies.xlsx`;
+          jsonBtn.onclick = () => window.location.href = `/runs/${id}/artifacts/raw.json`;
+          startBtn.disabled = false;
+          startBtn.textContent = "Start another run";
+          loadRecent();
+        } else if (r.status === "error") {
+          stopPolling();
+          errorEl.classList.remove("hidden");
+          errorEl.textContent = r.error || "Unknown error";
+          startBtn.disabled = false;
+          startBtn.textContent = "Start run";
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function stopPolling() {
+      if (pollHandle) clearInterval(pollHandle);
+      pollHandle = null;
+    }
+
+    startBtn.addEventListener("click", async () => {
+      errorEl.classList.add("hidden");
+      downloadBtn.classList.add("hidden");
+      jsonBtn.classList.add("hidden");
+      rationale.classList.add("hidden");
+
+      const payload = {
+        source: sourceSel.value,
+        objective: objective.value || "(unspecified)",
+      };
+      if (icpSel.value) payload.icp_id = icpSel.value;
+
+      startBtn.disabled = true;
+      startBtn.textContent = "Starting…";
+
+      let resp;
+      try {
+        resp = await fetch("/runs", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } catch (e) {
+        errorEl.classList.remove("hidden");
+        errorEl.textContent = String(e);
+        startBtn.disabled = false;
+        startBtn.textContent = "Start run";
+        return;
+      }
+      if (!resp.ok) {
+        errorEl.classList.remove("hidden");
+        errorEl.textContent = `HTTP ${resp.status}: ${await resp.text()}`;
+        startBtn.disabled = false;
+        startBtn.textContent = "Start run";
+        return;
+      }
+
+      const body = await resp.json();
+      currentRunId = body.run_id;
+      empty.classList.add("hidden");
+      status.classList.remove("hidden");
+      runIdEl.textContent = body.run_id;
+      badge.textContent = body.status;
+      badge.className = `pill ${STATUS_COLORS[body.status] || ""}`;
+      renderCounts(body.counts);
+
+      startBtn.textContent = "Running…";
+      poll(body.run_id);
+      pollHandle = setInterval(() => poll(body.run_id), 1000);
+    });
+
+    sourceSel.addEventListener("change", () => {
+      updateSourceNote();
+      const auto = {
+        zoominfo: { icp: "manufacturing-midmarket", obj: "Find mid-market manufacturing companies on Salesforce that may be ready for an agentic ERP." },
+        cslb: { icp: "cslb-electrical-midmarket", obj: "Find mid-sized California electrical contractors with active bonds and multiple classifications." },
+      }[sourceSel.value];
+      if (auto) {
+        if (!objective.value.trim()) objective.value = auto.obj;
+        if ([...icpSel.options].some((o) => o.value === auto.icp)) icpSel.value = auto.icp;
+      }
+    });
+
+    // ---------- ICP editor ----------
+    const editIcpSel = $("editIcpSel");
+    const icpForm = $("icpForm");
+    const icpFlash = $("icpFlash");
+    const deleteIcpBtn = $("deleteIcpBtn");
+
+    function csv(value) {
+      return (value || "").split(",").map((s) => s.trim()).filter(Boolean);
+    }
+    function joinList(arr) { return (arr || []).join(", "); }
+    function numOrNull(v) {
+      const n = parseInt(v, 10);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function flash(msg, ok = true) {
+      icpFlash.textContent = msg;
+      icpFlash.className = "text-xs " + (ok ? "text-emerald-700" : "text-red-700");
+      setTimeout(() => { icpFlash.textContent = ""; }, 4000);
+    }
+
+    async function loadIcpDropdown() {
+      const ids = await fetch("/icps").then((r) => r.json());
+      editIcpSel.innerHTML = '<option value="">— select —</option>' +
+        ids.map((id) => `<option value="${id}">${id}</option>`).join("");
+    }
+
+    function populateForm(icp) {
+      $("f_id").value = icp.id || "";
+      $("f_label").value = icp.label || "";
+      $("f_industries").value = joinList(icp.industries);
+      $("f_emp_min").value = icp.employee_min ?? "";
+      $("f_emp_max").value = icp.employee_max ?? "";
+      $("f_rev_min").value = icp.revenue_min ?? "";
+      $("f_rev_max").value = icp.revenue_max ?? "";
+      $("f_geo").value = joinList(icp.geographies);
+      $("f_tech_present").value = joinList(icp.technologies_present || (icp.zoominfo && icp.zoominfo.technologies_present));
+      $("f_tech_absent").value = joinList(icp.technologies_absent || (icp.zoominfo && icp.zoominfo.technologies_absent));
+      const cslb = icp.cslb || {};
+      $("f_cslb_class").value = joinList(cslb.classifications);
+      $("f_cslb_btype").value = joinList(cslb.business_types);
+      $("f_cslb_counties").value = joinList(cslb.counties);
+      $("f_cslb_bond").value = cslb.min_bond_amount ?? "";
+      $("f_cslb_status").value = joinList(cslb.primary_status);
+      $("f_notes").value = icp.notes || "";
+    }
+
+    function readForm() {
+      const cslbClass = csv($("f_cslb_class").value);
+      const cslbBtype = csv($("f_cslb_btype").value);
+      const cslbCounties = csv($("f_cslb_counties").value);
+      const cslbBond = numOrNull($("f_cslb_bond").value);
+      const cslbStatus = csv($("f_cslb_status").value);
+      const hasCslb = cslbClass.length || cslbBtype.length || cslbCounties.length || cslbBond != null || cslbStatus.length;
+
+      const techPresent = csv($("f_tech_present").value);
+      const techAbsent = csv($("f_tech_absent").value);
+
+      const icp = {
+        id: $("f_id").value.trim(),
+        label: $("f_label").value.trim(),
+        industries: csv($("f_industries").value),
+        employee_min: numOrNull($("f_emp_min").value),
+        employee_max: numOrNull($("f_emp_max").value),
+        revenue_min: numOrNull($("f_rev_min").value),
+        revenue_max: numOrNull($("f_rev_max").value),
+        geographies: csv($("f_geo").value),
+        technologies_present: techPresent,
+        technologies_absent: techAbsent,
+        notes: $("f_notes").value.trim() || null,
+      };
+      if (hasCslb) {
+        icp.cslb = {
+          classifications: cslbClass,
+          business_types: cslbBtype,
+          counties: cslbCounties,
+          min_bond_amount: cslbBond,
+          primary_status: cslbStatus.length ? cslbStatus : ["CLEAR"],
+        };
+      }
+      return icp;
+    }
+
+    function blankIcp() {
+      return {
+        id: "",
+        label: "",
+        industries: [],
+        employee_min: null,
+        employee_max: null,
+        revenue_min: null,
+        revenue_max: null,
+        geographies: [],
+        technologies_present: [],
+        technologies_absent: [],
+        cslb: null,
+        notes: null,
+      };
+    }
+
+    editIcpSel.addEventListener("change", async () => {
+      const id = editIcpSel.value;
+      if (!id) {
+        icpForm.classList.add("hidden");
+        deleteIcpBtn.classList.add("hidden");
+        $("cancelIcpBtn").classList.add("hidden");
+        return;
+      }
+      const icp = await fetch(`/icps/${id}`).then((r) => r.json());
+      populateForm(icp);
+      icpForm.classList.remove("hidden");
+      deleteIcpBtn.classList.remove("hidden");
+      $("cancelIcpBtn").classList.add("hidden");
+      $("f_id").readOnly = true;
+    });
+
+    $("newIcpBtn").addEventListener("click", () => {
+      editIcpSel.value = "";
+      populateForm(blankIcp());
+      icpForm.classList.remove("hidden");
+      deleteIcpBtn.classList.add("hidden");
+      $("cancelIcpBtn").classList.remove("hidden");
+      $("f_id").readOnly = false;
+      $("f_id").focus();
+    });
+
+    $("cancelIcpBtn").addEventListener("click", () => {
+      icpForm.classList.add("hidden");
+      $("cancelIcpBtn").classList.add("hidden");
+      deleteIcpBtn.classList.add("hidden");
+      editIcpSel.value = "";
+    });
+
+    $("reloadIcpBtn").addEventListener("click", async () => {
+      await Promise.all([loadIcpDropdown(), loadIcps()]);
+      flash("ICP list reloaded.");
+    });
+
+    $("saveIcpBtn").addEventListener("click", async () => {
+      const icp = readForm();
+      if (!icp.id || !icp.label) {
+        flash("ID and Label required.", false);
+        return;
+      }
+      const resp = await fetch(`/icps/${icp.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(icp),
+      });
+      if (!resp.ok) {
+        flash(`Save failed: HTTP ${resp.status}`, false);
+        return;
+      }
+      flash(`Saved ${icp.id}.`);
+      await Promise.all([loadIcpDropdown(), loadIcps()]);
+      editIcpSel.value = icp.id;
+      $("f_id").readOnly = true;
+      deleteIcpBtn.classList.remove("hidden");
+      $("cancelIcpBtn").classList.add("hidden");
+    });
+
+    deleteIcpBtn.addEventListener("click", async () => {
+      const id = editIcpSel.value;
+      if (!id) return;
+      if (!confirm(`Delete ICP "${id}"? This cannot be undone.`)) return;
+      const resp = await fetch(`/icps/${id}`, { method: "DELETE" });
+      if (!resp.ok && resp.status !== 204) {
+        flash(`Delete failed: HTTP ${resp.status}`, false);
+        return;
+      }
+      flash(`Deleted ${id}.`);
+      icpForm.classList.add("hidden");
+      deleteIcpBtn.classList.add("hidden");
+      await Promise.all([loadIcpDropdown(), loadIcps()]);
+    });
+
+    Promise.all([loadSources(), loadIcps(), loadIcpDropdown()]).then(() => {
+      sourceSel.dispatchEvent(new Event("change"));
+    });
+    loadRecent();
+    setInterval(loadRecent, 5000);
+  </script>
+</body>
+</html>

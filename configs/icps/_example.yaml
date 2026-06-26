@@ -1,0 +1,19 @@
+id: manufacturing-midmarket
+label: Mid-Market Manufacturing on Legacy CRM
+industries:
+  - Manufacturing
+  - Industrial Machinery
+employee_min: 100
+employee_max: 500
+revenue_min: 25000000
+revenue_max: 500000000
+geographies:
+  - United States
+  - Canada
+technologies_present:
+  - Salesforce
+  - NetSuite
+  - Oracle
+technologies_absent: []
+notes: >
+  Companies likely outgrowing Salesforce or running a legacy on-prem ERP.
